@@ -56,6 +56,7 @@ class TypingApp:
         self.net_wpm_label = ft.Text("Net WPM: 0.00")
         self.accuracy_label = ft.Text("Accuracy: 100.00%")
         self.errors_label = ft.Text("Errors: 0")
+        self.stop_button = ft.ElevatedButton("Stop", on_click=self._on_stop, color=ft.Colors.WHITE, bgcolor=ft.Colors.RED_700)
 
         self.result_title = ft.Text(size=22, weight=ft.FontWeight.BOLD)
         self.result_body = ft.Text(size=self.font_size)
@@ -154,7 +155,7 @@ class TypingApp:
                     self.typing_input,
                     ft.Row([self.elapsed_label, self.remaining_label, self.focus_label], spacing=24),
                     ft.Row([self.gross_wpm_label, self.net_wpm_label, self.accuracy_label, self.errors_label], spacing=24),
-                    ft.OutlinedButton("Back", on_click=self._go_home),
+                    ft.Row([self.stop_button, ft.OutlinedButton("Back", on_click=self._go_home)], spacing=16),
                 ],
                 vertical_alignment=ft.MainAxisAlignment.START,
                 scroll=ft.ScrollMode.AUTO,
@@ -179,6 +180,9 @@ class TypingApp:
         if self.session is None:
             return
 
+        if self.is_window_focused and self.typing_input.value:
+            self.session.begin_timing()
+
         self.session.update_typed_text(self.typing_input.value or "")
         self.live_text.spans = self._build_spans(self.passage.text, self.session.state.typed_text)
         self._update_metrics()
@@ -202,28 +206,47 @@ class TypingApp:
         else:
             remaining = max(0.0, self.session.config.timer_seconds - elapsed_sec)
             self.remaining_label.value = f"Remaining: {remaining:.1f}s"
-        if self.is_window_focused:
+        if not self.is_window_focused:
+            self.focus_label.value = "Paused (window out of focus)"
+            self.focus_label.color = ft.Colors.ORANGE_700
+        elif state.is_running:
             self.focus_label.value = "Active"
             self.focus_label.color = ft.Colors.GREEN_700
         else:
-            self.focus_label.value = "Paused (window out of focus)"
-            self.focus_label.color = ft.Colors.ORANGE_700
+            self.focus_label.value = "Waiting for typing"
+            self.focus_label.color = ft.Colors.BLUE_700
 
         self.gross_wpm_label.value = f"Gross WPM: {result.gross_wpm:.2f}"
         self.net_wpm_label.value = f"Net WPM: {result.net_wpm:.2f}"
         self.accuracy_label.value = f"Accuracy: {result.accuracy_pct:.2f}%"
         self.errors_label.value = f"Errors: {state.error_count}"
 
-    def _finish_session(self) -> None:
+    def _on_stop(self, _: ft.ControlEvent) -> None:
+        self._finish_session("Session Stopped")
+
+    def _finish_session(self, title: str | None = None) -> None:
         if self.session is None:
             return
 
         self.result = self.session.finalize()
         is_complete = self.session.state.is_complete
+        is_time_up = self.session.state.is_time_up
         self.session = None
         self._session_token += 1
 
-        title = "Session Complete" if is_complete else "Time's Up"
+        if title is None:
+            if is_complete:
+                title = "Session Complete"
+            elif is_time_up:
+                title = "Time's Up"
+            else:
+                title = "Session Stopped"
+        self._show_result(title)
+
+    def _show_result(self, title: str) -> None:
+        if self.result is None:
+            return
+
         self.result_title.value = title
         self.result_body.value = (
             f"Gross WPM: {self.result.gross_wpm:.2f}\n"
@@ -294,7 +317,6 @@ class TypingApp:
         elif event_name == "focus":
             self.is_window_focused = True
             if self.session is not None:
-                self.session.resume()
                 self._update_metrics()
                 self.page.update()
 

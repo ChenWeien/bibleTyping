@@ -57,14 +57,31 @@ class TypingSession:
             error_count=0,
             correct_count=0,
             elapsed_ms=0,
+            is_running=False,
             is_complete=False,
             is_time_up=False,
         )
 
     def start(self) -> None:
-        self._started_at = monotonic()
+        self._started_at = None
         self._paused_started_at = None
         self._paused_total_ms = 0
+        self.state.is_running = False
+        self.state.elapsed_ms = 0
+        self._update_time()
+
+    def begin_timing(self) -> None:
+        if self.state.is_complete or self.state.is_time_up or self.state.is_running:
+            return
+        if self._started_at is None:
+            self._started_at = monotonic()
+            self._paused_started_at = None
+            self._paused_total_ms = 0
+        elif self._paused_started_at is not None:
+            paused_ms = int((monotonic() - self._paused_started_at) * 1000)
+            self._paused_total_ms += max(0, paused_ms)
+            self._paused_started_at = None
+        self.state.is_running = True
         self._update_time()
 
     def update_typed_text(self, typed_text: str) -> SessionState:
@@ -88,18 +105,14 @@ class TypingSession:
         return self.state
 
     def pause(self) -> None:
-        if self._started_at is None or self._paused_started_at is not None:
+        if self._started_at is None or self._paused_started_at is not None or not self.state.is_running:
             return
         self._update_time()
         self._paused_started_at = monotonic()
+        self.state.is_running = False
 
     def resume(self) -> None:
-        if self._paused_started_at is None:
-            return
-        paused_ms = int((monotonic() - self._paused_started_at) * 1000)
-        self._paused_total_ms += max(0, paused_ms)
-        self._paused_started_at = None
-        self._update_time()
+        self.begin_timing()
 
     def finalize(self) -> SessionResult:
         self._update_time()

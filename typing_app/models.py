@@ -22,6 +22,7 @@ class SessionState:
     error_count: int
     correct_count: int
     elapsed_ms: int
+    is_running: bool
     is_complete: bool
     is_time_up: bool
 
@@ -35,4 +36,3 @@ class SessionResult:
     correct_chars: int
     error_chars: int
     duration_sec: float
-
