@@ -18,10 +18,12 @@ class TypingApp:
         self.session: Optional[TypingSession] = None
         self.result: Optional[SessionResult] = None
         self._session_token = 0
-        self.font_size = 16
+        self._typed_newline_count = 0
+        self.font_size = 32
         self.min_font_size = 12
-        self.max_font_size = 30
+        self.max_font_size = 60
         self.is_window_focused = True
+        self.passage_column: Optional[ft.Column] = None
 
         self.page.on_keyboard_event = self._on_keyboard_event
         self.page.on_window_event = self._on_window_event
@@ -44,8 +46,8 @@ class TypingApp:
         self.typing_input = ft.TextField(
             label="Type here",
             multiline=True,
-            min_lines=6,
-            max_lines=10,
+            min_lines=2,
+            max_lines=4,
             text_size=self.font_size,
             on_change=self._on_type,
         )
@@ -129,36 +131,43 @@ class TypingApp:
         self._session_token += 1
 
         self.typing_input.value = ""
+        self._typed_newline_count = 0
         self.target_text.value = self.passage.text
         self.live_text.spans = self._build_spans(self.passage.text, "")
         self._update_metrics()
+
+        self.passage_column = ft.Column(
+            controls=[self.live_text],
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+        passage_pane = ft.Container(
+            content=self.passage_column,
+            padding=12,
+            border=ft.border.all(1, ft.Colors.GREY_300),
+            border_radius=8,
+            expand=True,
+        )
 
         self.page.views.clear()
         self.page.views.append(
             ft.View(
                 route="/practice",
                 controls=[
-                    ft.Text("Practice", size=28, weight=ft.FontWeight.BOLD),
-                    ft.Container(
-                        content=self.target_text,
-                        padding=12,
-                        border=ft.border.all(1, ft.Colors.GREY_300),
-                        border_radius=8,
+                    ft.Column(
+                        controls=[
+                            ft.Text("Practice", size=28, weight=ft.FontWeight.BOLD),
+                            passage_pane,
+                            self.typing_input,
+                            ft.Row([self.elapsed_label, self.remaining_label, self.focus_label], spacing=24),
+                            ft.Row([self.gross_wpm_label, self.net_wpm_label, self.accuracy_label, self.errors_label], spacing=24),
+                            ft.Row([self.stop_button, ft.OutlinedButton("Back", on_click=self._go_home)], spacing=16),
+                        ],
+                        expand=True,
+                        spacing=10,
                     ),
-                    ft.Text("Live correctness overlay", size=14, color=ft.Colors.GREY_700),
-                    ft.Container(
-                        content=self.live_text,
-                        padding=12,
-                        border=ft.border.all(1, ft.Colors.GREY_300),
-                        border_radius=8,
-                    ),
-                    self.typing_input,
-                    ft.Row([self.elapsed_label, self.remaining_label, self.focus_label], spacing=24),
-                    ft.Row([self.gross_wpm_label, self.net_wpm_label, self.accuracy_label, self.errors_label], spacing=24),
-                    ft.Row([self.stop_button, ft.OutlinedButton("Back", on_click=self._go_home)], spacing=16),
                 ],
                 vertical_alignment=ft.MainAxisAlignment.START,
-                scroll=ft.ScrollMode.AUTO,
             )
         )
         self._apply_font_size()
@@ -183,7 +192,9 @@ class TypingApp:
         if self.is_window_focused and self.typing_input.value:
             self.session.begin_timing()
 
-        self.session.update_typed_text(self.typing_input.value or "")
+        typed_text = self.typing_input.value or ""
+        scroll_lines = self._count_new_entered_lines(typed_text)
+        self.session.update_typed_text(typed_text)
         self.live_text.spans = self._build_spans(self.passage.text, self.session.state.typed_text)
         self._update_metrics()
 
@@ -191,6 +202,20 @@ class TypingApp:
             self._finish_session()
         else:
             self.page.update()
+            self._scroll_passage_by_lines(scroll_lines)
+
+    def _count_new_entered_lines(self, typed_text: str) -> int:
+        newline_count = typed_text.count("\n")
+        entered_lines = max(0, newline_count - self._typed_newline_count)
+        self._typed_newline_count = newline_count
+        return entered_lines
+
+    def _scroll_passage_by_lines(self, line_count: int) -> None:
+        if line_count <= 0 or self.passage_column is None:
+            return
+
+        line_height = int(self.font_size * 1.35)
+        self.passage_column.scroll_to(delta=line_height * line_count, duration=120)
 
     def _update_metrics(self) -> None:
         if self.session is None:
