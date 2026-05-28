@@ -18,7 +18,7 @@ class TypingApp:
         self.session: Optional[TypingSession] = None
         self.result: Optional[SessionResult] = None
         self._session_token = 0
-        self._typed_newline_count = 0
+        self._last_reading_line = 0
         self.font_size = 32
         self.min_font_size = 12
         self.max_font_size = 60
@@ -131,7 +131,7 @@ class TypingApp:
         self._session_token += 1
 
         self.typing_input.value = ""
-        self._typed_newline_count = 0
+        self._last_reading_line = 0
         self.target_text.value = self.passage.text
         self.live_text.spans = self._build_spans(self.passage.text, "")
         self._update_metrics()
@@ -193,7 +193,7 @@ class TypingApp:
             self.session.begin_timing()
 
         typed_text = self.typing_input.value or ""
-        scroll_lines = self._count_new_entered_lines(typed_text)
+        reading_line = self._estimate_current_reading_line(typed_text)
         self.session.update_typed_text(typed_text)
         self.live_text.spans = self._build_spans(self.passage.text, self.session.state.typed_text)
         self._update_metrics()
@@ -202,20 +202,41 @@ class TypingApp:
             self._finish_session()
         else:
             self.page.update()
-            self._scroll_passage_by_lines(scroll_lines)
+            self._scroll_passage_to_line(reading_line)
 
-    def _count_new_entered_lines(self, typed_text: str) -> int:
-        newline_count = typed_text.count("\n")
-        entered_lines = max(0, newline_count - self._typed_newline_count)
-        self._typed_newline_count = newline_count
-        return entered_lines
+    def _estimate_current_reading_line(self, typed_text: str) -> int:
+        current_index = min(len(typed_text), len(self.passage.text))
+        chars_per_line = self._estimate_chars_per_reading_line()
+        line_index = 0
+        column_index = 0
 
-    def _scroll_passage_by_lines(self, line_count: int) -> None:
-        if line_count <= 0 or self.passage_column is None:
+        for ch in self.passage.text[:current_index]:
+            if ch == "\n":
+                line_index += 1
+                column_index = 0
+                continue
+
+            column_index += 1
+            if column_index >= chars_per_line:
+                line_index += 1
+                column_index = 0
+
+        return line_index
+
+    def _estimate_chars_per_reading_line(self) -> int:
+        page_width = self.page.window_width or 980
+        horizontal_padding = 72
+        average_char_width = max(1.0, self.font_size * 0.58)
+        return max(12, int((page_width - horizontal_padding) / average_char_width))
+
+    def _scroll_passage_to_line(self, line_index: int) -> None:
+        if line_index == self._last_reading_line or self.passage_column is None:
             return
 
+        self._last_reading_line = line_index
         line_height = int(self.font_size * 1.35)
-        self.passage_column.scroll_to(delta=line_height * line_count, duration=120)
+        scroll_offset = max(0, line_index - 1) * line_height
+        self.passage_column.scroll_to(offset=scroll_offset, duration=120)
 
     def _update_metrics(self) -> None:
         if self.session is None:
